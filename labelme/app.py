@@ -33,6 +33,11 @@ from labelme.widgets import LabelListWidgetItem
 from labelme.widgets import ToolBar
 from labelme.widgets import UniqueLabelQListWidget
 from labelme.widgets import ZoomWidget
+from labelme.widgets import ColorDialog
+
+import json
+from labelme.segmentationTree import SegmentationTree
+from . import segmentationTree
 
 # FIXME
 # - [medium] Set max zoom value to something big enough for FitWidth/Window
@@ -319,9 +324,101 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         toggle_keep_prev_mode.setChecked(self._config["keep_prev"])
 
+        selectionMode = action(
+            text=self.tr("Create Segment Selection"),
+            slot=lambda: self.toggleDrawMode(createMode="select"),
+            icon="objects",
+            tip=self.tr("Start selecting segments"),
+            enabled=False,
+        )
+
+        segmentationTreeMode = action(
+            text=self.tr("Segmentation Tree Selection"),
+            slot=lambda: self.toggleSelectMode(selectMode="segmentation_tree"),
+            icon="objects",
+            tip=self.tr("Start selecting segmentation tree segments"),
+            enabled=True,
+        )
+
+        self.contrastLevelIndexTextBoxWidget = QtWidgets.QLineEdit(self)
+        self.contrastLevelIndexTextBoxWidget.editingFinished.connect(self.handleContrastLevelIndexTextBoxInput)
+        self.contrastLevelIndexTextBoxWidget.setToolTip("Contrast Level Index")
+        self.contrastLevelIndexTextBoxWidget.setAlignment(QtCore.Qt.AlignCenter)
+        contrastLevelIndexTextBox = QtWidgets.QWidgetAction(self)
+        contrastLevelIndexTextBox.setDefaultWidget(self.contrastLevelIndexTextBoxWidget)
+        contrastLevelIndexTextBox.setVisible(False)
+
+        borderSelectionMode = action(
+            text=self.tr("Border Selection"),
+            slot=lambda: self.toggleSelectMode(selectMode="border_selection"),
+            icon="objects",
+            tip=self.tr("Contour the boundary of your selection"),
+            enabled=False,
+        )
+
+        maskSegmentSelectionMode = action(
+            text=self.tr("Mask Segment Selection"),
+            slot=lambda: self.toggleSelectMode(selectMode="mask_segment_selection"),
+            icon="objects",
+            tip=self.tr("Mask the section you want to select"),
+            enabled=True,
+        )
+
+        maskSegmentDeselectionMode = action(
+            text=self.tr("Mask Segment Deselection "),
+            slot=lambda: self.toggleSelectMode(selectMode="mask_segment_deselection"),
+            icon="objects",
+            tip=self.tr("Mask the section you want to deselect"),
+            enabled=True,
+        )
+
+        maskAdditionMode = action(
+            text=self.tr("Mask Addition"),
+            slot=lambda: self.toggleSelectMode(selectMode="mask_addition"),
+            icon="objects",
+            tip=self.tr("Mask the area you want to add"),
+            enabled=True,
+        )
+
+        maskRemovalMode = action(
+            text=self.tr("Mask Removal"),
+            slot=lambda: self.toggleSelectMode(selectMode="mask_removal"),
+            icon="objects",
+            tip=self.tr("Mask the area you want to remove"),
+            enabled=True,
+        )
+
+        changeSelectionToolBaseColor = action(
+            text=self.tr("Change Base Color"),
+            slot=lambda: self.changeSelectionToolColor(colorType="base"),
+            icon="color",
+            tip=self.tr("Change the selection tools' base color"),
+            enabled=True,
+        )
+
+        changeSelectionToolBlinkColor = action(
+            text=self.tr("Change Blink Color"),
+            slot=lambda: self.changeSelectionToolColor(colorType="blink"),
+            icon="color",
+            tip=self.tr("Change the selection tools' blink color"),
+            enabled=True,
+        )
+
+        self.colorBlinkCheckBoxWidget = QtWidgets.QCheckBox("Blinking")
+        self.colorBlinkCheckBoxWidget.setToolTip("Selection outline and fill color blinking")
+        self.colorBlinkCheckBoxWidget.stateChanged.connect(self.updateBlinkingState)
+        colorBlinkCheckBox = QtWidgets.QWidgetAction(self)
+        colorBlinkCheckBox.setDefaultWidget(self.colorBlinkCheckBoxWidget)
+
+        self.numFinalSelectionPolygonsLabelWidget = QtWidgets.QLabel(" ")
+        self.numFinalSelectionPolygonsLabelWidget.setToolTip("Number of polygons in the final selection")
+        self.numFinalSelectionPolygonsLabelWidget.setAlignment(QtCore.Qt.AlignCenter)
+        numFinalSelectionPolygonsLabel = QtWidgets.QWidgetAction(self)
+        numFinalSelectionPolygonsLabel.setDefaultWidget(self.numFinalSelectionPolygonsLabelWidget)
+
         createMode = action(
             self.tr("Create Polygons"),
-            lambda: self.toggleDrawMode(False, createMode="polygon"),
+            lambda: self.toggleDrawMode(createMode="polygon"),
             shortcuts["create_polygon"],
             "objects",
             self.tr("Start drawing polygons"),
@@ -329,7 +426,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         createRectangleMode = action(
             self.tr("Create Rectangle"),
-            lambda: self.toggleDrawMode(False, createMode="rectangle"),
+            lambda: self.toggleDrawMode(createMode="rectangle"),
             shortcuts["create_rectangle"],
             "objects",
             self.tr("Start drawing rectangles"),
@@ -337,7 +434,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         createCircleMode = action(
             self.tr("Create Circle"),
-            lambda: self.toggleDrawMode(False, createMode="circle"),
+            lambda: self.toggleDrawMode(createMode="circle"),
             shortcuts["create_circle"],
             "objects",
             self.tr("Start drawing circles"),
@@ -345,7 +442,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         createLineMode = action(
             self.tr("Create Line"),
-            lambda: self.toggleDrawMode(False, createMode="line"),
+            lambda: self.toggleDrawMode(createMode="line"),
             shortcuts["create_line"],
             "objects",
             self.tr("Start drawing lines"),
@@ -353,7 +450,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         createPointMode = action(
             self.tr("Create Point"),
-            lambda: self.toggleDrawMode(False, createMode="point"),
+            lambda: self.toggleDrawMode(createMode="point"),
             shortcuts["create_point"],
             "objects",
             self.tr("Start drawing points"),
@@ -361,7 +458,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         createLineStripMode = action(
             self.tr("Create LineStrip"),
-            lambda: self.toggleDrawMode(False, createMode="linestrip"),
+            lambda: self.toggleDrawMode(createMode="linestrip"),
             shortcuts["create_linestrip"],
             "objects",
             self.tr("Start drawing linestrip. Ctrl+LeftClick ends creation."),
@@ -369,7 +466,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         editMode = action(
             self.tr("Edit Polygons"),
-            self.setEditMode,
+            lambda: self.toggleDrawMode(createMode="edit"),
             shortcuts["edit_polygon"],
             "edit",
             self.tr("Move and edit the selected polygons"),
@@ -596,6 +693,18 @@ class MainWindow(QtWidgets.QMainWindow):
             undoLastPoint=undoLastPoint,
             undo=undo,
             removePoint=removePoint,
+            selectionMode=selectionMode,
+            segmentationTreeMode=segmentationTreeMode,
+            contrastLevelIndexTextBox=contrastLevelIndexTextBox,
+            borderSelectionMode=borderSelectionMode,
+            maskSegmentSelectionMode=maskSegmentSelectionMode,
+            maskSegmentDeselectionMode=maskSegmentDeselectionMode,
+            maskAdditionMode=maskAdditionMode,
+            maskRemovalMode=maskRemovalMode,
+            changeSelectionToolBaseColor=changeSelectionToolBaseColor,
+            changeSelectionToolBlinkColor=changeSelectionToolBlinkColor,
+            colorBlinkCheckBox=colorBlinkCheckBox,
+            numFinalSelectionPolygonsLabel=numFinalSelectionPolygonsLabel,
             createMode=createMode,
             editMode=editMode,
             createRectangleMode=createRectangleMode,
@@ -616,6 +725,7 @@ class MainWindow(QtWidgets.QMainWindow):
             openPrevImg=openPrevImg,
             fileMenuActions=(open_, opendir, save, saveAs, close, quit),
             tool=(),
+            selectionTool=(),
             # XXX: need to add some actions here to activate the shortcut
             editMenu=(
                 edit,
@@ -631,6 +741,7 @@ class MainWindow(QtWidgets.QMainWindow):
             ),
             # menu shown at right click
             menu=(
+                selectionMode,
                 createMode,
                 createRectangleMode,
                 createCircleMode,
@@ -649,6 +760,7 @@ class MainWindow(QtWidgets.QMainWindow):
             ),
             onLoadActive=(
                 close,
+                selectionMode,
                 createMode,
                 createRectangleMode,
                 createCircleMode,
@@ -739,6 +851,7 @@ class MainWindow(QtWidgets.QMainWindow):
             save,
             deleteFile,
             None,
+            selectionMode,
             createMode,
             editMode,
             duplicate,
@@ -750,6 +863,25 @@ class MainWindow(QtWidgets.QMainWindow):
             None,
             zoom,
             fitWidth,
+        )
+
+        self.selectionTools = self.toolbar("Selection Tools")
+        self.actions.selectionTool = (
+            segmentationTreeMode,
+            contrastLevelIndexTextBox,
+            None,
+            borderSelectionMode,
+            maskSegmentSelectionMode,
+            maskSegmentDeselectionMode,
+            None,
+            maskAdditionMode,
+            maskRemovalMode,
+            None,
+            changeSelectionToolBaseColor,
+            changeSelectionToolBlinkColor,
+            colorBlinkCheckBox,
+            None,
+            numFinalSelectionPolygonsLabel,
         )
 
         self.statusBar().showMessage(str(self.tr("%s started.")) % __appname__)
@@ -813,6 +945,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.populateModeActions()
 
+        # Pupulate and setup selection tool bar
+        self.selectionTools.clear()
+        utils.addActions(self.selectionTools, self.actions.selectionTool)
+        self.selectionTools.setVisible(False)
+        self.canvas.updateContrastLevelIndexTextBox.connect(self.updateContrastLevelIndexTextBox)
+        self.canvas.updateNumFinalSelectionPolygonsLabel.connect(self.updateNumFinalSelectionPolygonsLabel)
+        self.selectionToolColorDialog = ColorDialog()
+
         # self.firstStart = True
         # if self.firstStart:
         #    QWhatsThis.enterWhatsThisMode()
@@ -832,6 +972,39 @@ class MainWindow(QtWidgets.QMainWindow):
             utils.addActions(toolbar, actions)
         self.addToolBar(Qt.LeftToolBarArea, toolbar)
         return toolbar
+
+    def changeSelectionToolColor(self, colorType):
+        if colorType == "base":
+            color = self.selectionToolColorDialog.getColor()
+            if color != None:
+                self.canvas.selectionToolsBaseColor = color
+        else:
+            color = self.selectionToolColorDialog.getColor()
+            if color != None:
+                self.canvas.selectionToolsBlinkColor = color
+        self.canvas.update()
+
+    def updateBlinkingState(self):
+        self.canvas.blinkColors = self.colorBlinkCheckBoxWidget.isChecked()
+        self.canvas.update()
+
+    def updateNumFinalSelectionPolygonsLabel(self):
+        self.numFinalSelectionPolygonsLabelWidget.setText("Num Polygons: " + str(self.canvas.numFinalSelectionPolygons))
+
+    def updateContrastLevelIndexTextBox(self):
+        self.contrastLevelIndexTextBoxWidget.setText(str(self.canvas.contrast_level_index))
+
+    def handleContrastLevelIndexTextBoxInput(self):
+        if not self.contrastLevelIndexTextBoxWidget.text().isdigit():
+            self.contrastLevelIndexTextBoxWidget.setText(str(self.canvas.contrast_level_index))
+            return
+
+        new_val = int(self.contrastLevelIndexTextBoxWidget.text())
+        if new_val < 0 or new_val >= len(self.canvas.contrast_levels):
+            self.contrastLevelIndexTextBoxWidget.setText(str(self.canvas.contrast_level_index))
+            return
+
+        self.canvas.contrast_level_index = new_val
 
     # Support Functions
 
@@ -949,66 +1122,165 @@ class MainWindow(QtWidgets.QMainWindow):
         self.actions.undoLastPoint.setEnabled(drawing)
         self.actions.undo.setEnabled(not drawing)
         self.actions.delete.setEnabled(not drawing)
+        self.actions.selectionMode.setEnabled(not drawing)
+        self.actions.createMode.setEnabled(not drawing)
+        self.actions.createRectangleMode.setEnabled(not drawing)
+        self.actions.createCircleMode.setEnabled(not drawing)
+        self.actions.createLineMode.setEnabled(not drawing)
+        self.actions.createPointMode.setEnabled(not drawing)
+        self.actions.createLineStripMode.setEnabled(not drawing)
 
-    def toggleDrawMode(self, edit=True, createMode="polygon"):
-        self.canvas.setEditing(edit)
-        self.canvas.createMode = createMode
-        if edit:
+    def setSegmentationTree(self):
+        if self.canvas.segmentation_tree == None:
+            success = self.openSegmentationTreeFile()
+            print(success)
+            if not success:
+                return False
+        self.canvas.clearSegTreeSelection()
+        self.canvas.update()
+        return True
+
+    def toggleDrawMode(self, createMode="polygon"):
+        if createMode == "polygon":
+            self.actions.selectionMode.setEnabled(True)
+            self.actions.createMode.setEnabled(False)
+            self.actions.createRectangleMode.setEnabled(True)
+            self.actions.createCircleMode.setEnabled(True)
+            self.actions.createLineMode.setEnabled(True)
+            self.actions.createPointMode.setEnabled(True)
+            self.actions.createLineStripMode.setEnabled(True)
+            self.actions.editMode.setEnabled(True)
+            self.selectionTools.setVisible(False)
+        elif createMode == "rectangle":
+            self.actions.selectionMode.setEnabled(True)
+            self.actions.createMode.setEnabled(True)
+            self.actions.createRectangleMode.setEnabled(False)
+            self.actions.createCircleMode.setEnabled(True)
+            self.actions.createLineMode.setEnabled(True)
+            self.actions.createPointMode.setEnabled(True)
+            self.actions.createLineStripMode.setEnabled(True)
+            self.actions.editMode.setEnabled(True)
+            self.selectionTools.setVisible(False)
+        elif createMode == "line":
+            self.actions.selectionMode.setEnabled(True)
+            self.actions.createMode.setEnabled(True)
+            self.actions.createRectangleMode.setEnabled(True)
+            self.actions.createCircleMode.setEnabled(True)
+            self.actions.createLineMode.setEnabled(False)
+            self.actions.createPointMode.setEnabled(True)
+            self.actions.createLineStripMode.setEnabled(True)
+            self.actions.editMode.setEnabled(True)
+            self.selectionTools.setVisible(False)
+        elif createMode == "point":
+            self.actions.selectionMode.setEnabled(True)
+            self.actions.createMode.setEnabled(True)
+            self.actions.createRectangleMode.setEnabled(True)
+            self.actions.createCircleMode.setEnabled(True)
+            self.actions.createLineMode.setEnabled(True)
+            self.actions.createPointMode.setEnabled(False)
+            self.actions.createLineStripMode.setEnabled(True)
+            self.actions.editMode.setEnabled(True)
+            self.selectionTools.setVisible(False)
+        elif createMode == "circle":
+            self.actions.selectionMode.setEnabled(True)
+            self.actions.createMode.setEnabled(True)
+            self.actions.createRectangleMode.setEnabled(True)
+            self.actions.createCircleMode.setEnabled(False)
+            self.actions.createLineMode.setEnabled(True)
+            self.actions.createPointMode.setEnabled(True)
+            self.actions.createLineStripMode.setEnabled(True)
+            self.actions.editMode.setEnabled(True)
+            self.selectionTools.setVisible(False)
+        elif createMode == "linestrip":
+            self.actions.selectionMode.setEnabled(True)
+            self.actions.createMode.setEnabled(True)
+            self.actions.createRectangleMode.setEnabled(True)
+            self.actions.createCircleMode.setEnabled(True)
+            self.actions.createLineMode.setEnabled(True)
+            self.actions.createPointMode.setEnabled(True)
+            self.actions.createLineStripMode.setEnabled(False)
+            self.actions.editMode.setEnabled(True)
+            self.selectionTools.setVisible(False)
+        elif createMode == "select":
+            if not self.setSegmentationTree():
+                return
+            self.actions.selectionMode.setEnabled(False)
             self.actions.createMode.setEnabled(True)
             self.actions.createRectangleMode.setEnabled(True)
             self.actions.createCircleMode.setEnabled(True)
             self.actions.createLineMode.setEnabled(True)
             self.actions.createPointMode.setEnabled(True)
             self.actions.createLineStripMode.setEnabled(True)
+            self.actions.editMode.setEnabled(True)
+            self.selectionTools.setVisible(True)
+        elif createMode == "edit":
+            self.actions.selectionMode.setEnabled(True)
+            self.actions.createMode.setEnabled(True)
+            self.actions.createRectangleMode.setEnabled(True)
+            self.actions.createCircleMode.setEnabled(True)
+            self.actions.createLineMode.setEnabled(True)
+            self.actions.createPointMode.setEnabled(True)
+            self.actions.createLineStripMode.setEnabled(True)
+            self.actions.editMode.setEnabled(False)
+            self.selectionTools.setVisible(False)
         else:
-            if createMode == "polygon":
-                self.actions.createMode.setEnabled(False)
-                self.actions.createRectangleMode.setEnabled(True)
-                self.actions.createCircleMode.setEnabled(True)
-                self.actions.createLineMode.setEnabled(True)
-                self.actions.createPointMode.setEnabled(True)
-                self.actions.createLineStripMode.setEnabled(True)
-            elif createMode == "rectangle":
-                self.actions.createMode.setEnabled(True)
-                self.actions.createRectangleMode.setEnabled(False)
-                self.actions.createCircleMode.setEnabled(True)
-                self.actions.createLineMode.setEnabled(True)
-                self.actions.createPointMode.setEnabled(True)
-                self.actions.createLineStripMode.setEnabled(True)
-            elif createMode == "line":
-                self.actions.createMode.setEnabled(True)
-                self.actions.createRectangleMode.setEnabled(True)
-                self.actions.createCircleMode.setEnabled(True)
-                self.actions.createLineMode.setEnabled(False)
-                self.actions.createPointMode.setEnabled(True)
-                self.actions.createLineStripMode.setEnabled(True)
-            elif createMode == "point":
-                self.actions.createMode.setEnabled(True)
-                self.actions.createRectangleMode.setEnabled(True)
-                self.actions.createCircleMode.setEnabled(True)
-                self.actions.createLineMode.setEnabled(True)
-                self.actions.createPointMode.setEnabled(False)
-                self.actions.createLineStripMode.setEnabled(True)
-            elif createMode == "circle":
-                self.actions.createMode.setEnabled(True)
-                self.actions.createRectangleMode.setEnabled(True)
-                self.actions.createCircleMode.setEnabled(False)
-                self.actions.createLineMode.setEnabled(True)
-                self.actions.createPointMode.setEnabled(True)
-                self.actions.createLineStripMode.setEnabled(True)
-            elif createMode == "linestrip":
-                self.actions.createMode.setEnabled(True)
-                self.actions.createRectangleMode.setEnabled(True)
-                self.actions.createCircleMode.setEnabled(True)
-                self.actions.createLineMode.setEnabled(True)
-                self.actions.createPointMode.setEnabled(True)
-                self.actions.createLineStripMode.setEnabled(False)
-            else:
-                raise ValueError("Unsupported createMode: %s" % createMode)
-        self.actions.editMode.setEnabled(not edit)
+            raise ValueError("Unsupported createMode: %s" % createMode)
+        self.canvas.setMode(createMode)
+        self.canvas.createMode = createMode
 
-    def setEditMode(self):
-        self.toggleDrawMode(True)
+    def toggleSelectMode(self, selectMode="segmentation_tree"):
+        self.canvas.selectMode = selectMode
+        if selectMode == "segmentation_tree":
+            self.actions.segmentationTreeMode.setEnabled(False)
+            self.actions.borderSelectionMode.setEnabled(True)
+            self.actions.maskSegmentSelectionMode.setEnabled(True)
+            self.actions.maskSegmentDeselectionMode.setEnabled(True)
+            self.actions.maskAdditionMode.setEnabled(True)
+            self.actions.maskRemovalMode.setEnabled(True)
+            self.actions.contrastLevelIndexTextBox.setVisible(True)
+            self.updateContrastLevelIndexTextBox()
+        elif selectMode == "border_selection":
+            self.actions.segmentationTreeMode.setEnabled(True)
+            self.actions.borderSelectionMode.setEnabled(False)
+            self.actions.maskSegmentSelectionMode.setEnabled(True)
+            self.actions.maskSegmentDeselectionMode.setEnabled(True)
+            self.actions.maskAdditionMode.setEnabled(True)
+            self.actions.maskRemovalMode.setEnabled(True)
+            self.actions.contrastLevelIndexTextBox.setVisible(False)
+        elif selectMode == "mask_segment_selection":
+            self.actions.segmentationTreeMode.setEnabled(True)
+            self.actions.borderSelectionMode.setEnabled(True)
+            self.actions.maskSegmentSelectionMode.setEnabled(False)
+            self.actions.maskSegmentDeselectionMode.setEnabled(True)
+            self.actions.maskAdditionMode.setEnabled(True)
+            self.actions.maskRemovalMode.setEnabled(True)
+            self.actions.contrastLevelIndexTextBox.setVisible(False)
+        elif selectMode == "mask_segment_deselection":
+            self.actions.segmentationTreeMode.setEnabled(True)
+            self.actions.borderSelectionMode.setEnabled(True)
+            self.actions.maskSegmentSelectionMode.setEnabled(True)
+            self.actions.maskSegmentDeselectionMode.setEnabled(False)
+            self.actions.maskAdditionMode.setEnabled(True)
+            self.actions.maskRemovalMode.setEnabled(True)
+            self.actions.contrastLevelIndexTextBox.setVisible(False)
+        elif selectMode == "mask_addition":
+            self.actions.segmentationTreeMode.setEnabled(True)
+            self.actions.borderSelectionMode.setEnabled(True)
+            self.actions.maskSegmentSelectionMode.setEnabled(True)
+            self.actions.maskSegmentDeselectionMode.setEnabled(True)
+            self.actions.maskAdditionMode.setEnabled(False)
+            self.actions.maskRemovalMode.setEnabled(True)
+            self.actions.contrastLevelIndexTextBox.setVisible(False)
+        elif selectMode == "mask_removal":
+            self.actions.segmentationTreeMode.setEnabled(True)
+            self.actions.borderSelectionMode.setEnabled(True)
+            self.actions.maskSegmentSelectionMode.setEnabled(True)
+            self.actions.maskSegmentDeselectionMode.setEnabled(True)
+            self.actions.maskAdditionMode.setEnabled(True)
+            self.actions.maskRemovalMode.setEnabled(False)
+            self.actions.contrastLevelIndexTextBox.setVisible(False)
+        else:
+            raise ValueError("Unsupported selectMode: %s" % selectMode)
 
     def updateFileMenu(self):
         current = self.filename
@@ -1367,6 +1639,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.actions.undoLastPoint.setEnabled(False)
             self.actions.undo.setEnabled(True)
             self.setDirty()
+            self.toggleDrawingSensitive(False)
         else:
             self.canvas.undoLastLine()
             self.canvas.shapesBackups.pop()
@@ -1463,6 +1736,48 @@ class MainWindow(QtWidgets.QMainWindow):
         for item in self.labelList:
             item.setCheckState(Qt.Checked if value else Qt.Unchecked)
 
+    def loadSegTreeFromJSON(self, seg_tree_filename):
+        if QtCore.QFile.exists(seg_tree_filename):
+            try:
+                with open(seg_tree_filename, "r") as f:
+                    jsonSegTree = json.loads(f.read())
+                    self.canvas.segmentation_tree = SegmentationTree()
+                    self.canvas.contrast_levels = self.canvas.segmentation_tree.loadSegTreeFromDictArray(jsonSegTree)
+                    self.toggleDrawMode(self.canvas.createMode)
+                    return True
+            except IOError:
+                print("Error loading segmentation tree JSON")
+        return False
+    
+    def loadSegTreeFromMATLAB(self, matlab_filename, seg_tree_filename=None):
+        if seg_tree_filename == None:
+            base_filename = matlab_filename[:matlab_filename.find("_matlab_region_list.mat")]
+            seg_tree_filename = base_filename + "_seg_tree.json"
+
+        if QtCore.QFile.exists(matlab_filename):
+            try:
+                self.canvas.segmentation_tree, self.canvas.contrast_levels = segmentationTree.convertMatToTree(matlab_filename)
+                try:
+                    with open(seg_tree_filename, "w") as f:
+                        jsonSegTree = self.canvas.segmentation_tree.getSegTreeAsDictArray(self.canvas.contrast_levels)
+                        json.dump(jsonSegTree, f, ensure_ascii=False, indent=2)
+                except IOError:
+                    print("Error saving segmentation tree JSON")
+                self.toggleDrawMode(self.canvas.createMode)
+                return True
+            except IOError:
+                print("Error loading segmentation tree MATLAB")
+        return False
+    
+    def loadSegTree(self, filename):
+        self.canvas.segmentation_tree = None
+        seg_tree_filename = osp.splitext(filename)[0] + "_seg_tree" + ".json"
+        matlab_filename = osp.splitext(filename)[0] + "_matlab_region_list" + ".mat"
+
+        if self.loadSegTreeFromJSON(seg_tree_filename):
+            return True
+        return self.loadSegTreeFromMATLAB(matlab_filename, seg_tree_filename)
+
     def loadFile(self, filename=None):
         """Load the specified file, or the last opened file if None."""
         # changing fileListWidget loads file
@@ -1520,6 +1835,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.imagePath = filename
             self.labelFile = None
         image = QtGui.QImage.fromData(self.imageData)
+        self.loadSegTree(filename)
 
         if image.isNull():
             formats = [
@@ -1752,6 +2068,28 @@ class MainWindow(QtWidgets.QMainWindow):
             fileName = fileDialog.selectedFiles()[0]
             if fileName:
                 self.loadFile(fileName)
+
+    def openSegmentationTreeFile(self):
+        if not self.mayContinue():
+            return False
+        path = osp.dirname(str(self.filename)) if self.filename else "."
+        filters = self.tr("Segmentation Tree JSON and MATLAB files (%s)") % " ".join(["*.json", "*.mat"])
+        fileDialog = QtWidgets.QFileDialog(self)
+        fileDialog.setFileMode(QtWidgets.QFileDialog.ExistingFile)
+        fileDialog.setNameFilter(filters)
+        fileDialog.setWindowTitle(
+            self.tr("%s - Choose Segmentation Tree JSON or MATLAB file") % __appname__,
+        )
+        fileDialog.setWindowFilePath(path)
+        # fileDialog.setViewMode(FileDialogPreview.Detail)
+        if fileDialog.exec_():
+            fileName = fileDialog.selectedFiles()[0]
+            if fileName:
+                if osp.splitext(fileName)[1] == ".json":
+                    return self.loadSegTreeFromJSON(fileName)
+                else:
+                    return self.loadSegTreeFromMATLAB(fileName)
+        return False
 
     def changeOutputDirDialog(self, _value=False):
         default_output_dir = self.output_dir
@@ -2032,11 +2370,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.openNextImg()
 
     def importDirImages(self, dirpath, pattern=None, load=True):
-        self.actions.openNextImg.setEnabled(True)
-        self.actions.openPrevImg.setEnabled(True)
-
         if not self.mayContinue() or not dirpath:
             return
+
+        self.actions.openNextImg.setEnabled(True)
+        self.actions.openPrevImg.setEnabled(True)
 
         self.lastOpenDir = dirpath
         self.filename = None

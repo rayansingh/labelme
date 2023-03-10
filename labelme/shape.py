@@ -93,6 +93,8 @@ class Shape(object):
             "line",
             "circle",
             "linestrip",
+            "select",
+            "edit",
         ]:
             raise ValueError("Unexpected shape_type: {}".format(value))
         self._shape_type = value
