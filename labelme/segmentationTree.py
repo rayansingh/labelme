@@ -2,17 +2,17 @@ import cv2
 import numpy as np
 from scipy.io import loadmat
 from shapely.geometry import Polygon, MultiPolygon, Point
-from shapely.ops import nearest_points
+from shapely.ops import nearest_points, unary_union
 from shapely.validation import make_valid, explain_validity
 import json
 from qtpy import QtCore
 from qtpy import QtGui
 
 
-def convertMatToTree(filename=None):
-    if filename == None:
-        return
-    segmentation_tree_array = loadmat(filename)['ans'][0]
+def convertMatToTree(filename, c, r):
+    matlab_file = loadmat(filename)
+    key = list(matlab_file.keys())[3]
+    segmentation_tree_array = loadmat(filename)[key][0]
     num_segments = len(segmentation_tree_array)
     trees = []
     contrast_levels = {}
@@ -39,7 +39,7 @@ def convertMatToTree(filename=None):
                         continue
                     trees.append(SegmentationTree(list(polygon.exterior.coords), contrast))
             else:
-                trees.append(new_node)
+                trees.append(new_node)        
 
     # sort shapes based on area
     is_sorted = True
@@ -280,3 +280,32 @@ class SegmentationTree(object):
 
     def loadSegTreeFromDictArray(self, dictArraySegTree):
         return self.convertDictArrayToSegTree(dictArraySegTree)
+
+    def createMissingChildren(self):
+        newPolygons = []
+        childPolygons = [i.polygon for i in self.children]
+        childrenUnion = unary_union(childPolygons)
+        if childrenUnion.area > 0:
+            difference = self.polygon.difference(childrenUnion)
+            if difference.geom_type == "Polygon":
+                if difference.area > 5:
+                    newPolygons.append(difference)
+            else:
+                for polygon in list(difference.geoms):
+                    if polygon.area > 5:
+                        newPolygons.append(polygon)
+            for polygon in newPolygons:
+                self.children.append(SegmentationTree(list(polygon.exterior.coords), self.children[0].contrast_level))
+
+        for child in self.children:
+            child.createMissingChildren()
+
+    def selectedSegmentContainsPoint(self, point):
+        if self.polygon.contains(point):
+            if self.selected:
+                return True
+        
+            for child in self.children:
+                if child.selectedSegmentContainsPoint(point):
+                    return True
+        return False

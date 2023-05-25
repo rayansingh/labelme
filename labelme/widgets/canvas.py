@@ -6,11 +6,12 @@ from labelme import QT5
 from labelme.shape import Shape
 import labelme.utils
 
-from shapely.geometry import Polygon
-from shapely.geometry import LineString
+from shapely.geometry import Polygon, LineString, Point
 from shapely.ops import unary_union
 import numpy as np
 import cv2
+# import math
+# import time
 
 # TODO(unknown):
 # - [maybe] Find optimal epsilon value.
@@ -40,6 +41,7 @@ class Canvas(QtWidgets.QWidget):
     updateNumFinalSelectionPolygonsLabel = QtCore.Signal()
 
     CREATE, EDIT, SELECT = 0, 1, 2
+    SEGMENTATION_TREE, BORDER_SELECTION, MASK_SEGMENT_SELECTION, MASK_SEGMENT_DESELECTION, MASK_ADDITION, MASK_REMOVAL, MAX_CONTRAST_BOUNDARY = 0, 1, 2, 3, 4, 5, 6
 
     # polygon, rectangle, line, or point
     _createMode = "polygon"
@@ -112,7 +114,7 @@ class Canvas(QtWidgets.QWidget):
         self.contrast_levels = []
         self.contrast_level_index = 0
         self.segmentation_tree = None
-        self.selectMode = "border_selection"
+        self.selectMode = self.BORDER_SELECTION
         self.contour_points = []
         self.contouring = False
         self.contour_editing_radius = 20
@@ -121,6 +123,12 @@ class Canvas(QtWidgets.QWidget):
         self.adjustingStencilSize = False
         self.stencilSizeAdjustmentStartingPoint = 0
         self.tempStencilSize = 0
+        self.image = QtGui.QImage()
+        self.newPoints = []
+
+        # self.startTime = 0
+        # self.curTime = 0
+        # self.saveCounter = 0
 
         self.blinkColors = False
         self.selectionToolColor = DEFAULT_SELECTION_TOOL_BASE_COLOR
@@ -138,6 +146,22 @@ class Canvas(QtWidgets.QWidget):
         self.msgBox.setStandardButtons(QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
         self.msgBox.setDefaultButton(QtWidgets.QMessageBox.No)
         self.msgBox.setWindowTitle(" ")
+
+    # def polygonToMask(self):
+    #     height = self.image.height()
+    #     width = self.image.width()
+    #     img = np.zeros((height,width,3), np.uint8)
+    #     shape = self.shapes[-1]
+    #     polygon = Polygon([[point.x(),point.y()] for point in shape.points])
+
+    #     for r in range(0, height):
+    #         for c in range(0, width):
+    #             if polygon.contains(Point([c,r])):
+    #                 img[r][c][0] = 255
+    #                 img[r][c][1] = 255
+    #                 img[r][c][2] = 255
+    #     cv2.imwrite('mask' + str(self.saveCounter) + '.png',img)
+    #     self.saveCounter += 1
         
     def swapSelectionToolColor(self):
         if self.selectionToolColor == self.selectionToolsBlinkColor:
@@ -368,7 +392,7 @@ class Canvas(QtWidgets.QWidget):
             self.current.highlightClear()
             return
         elif self.selecting():
-            if self.selectMode == "segmentation_tree":
+            if self.selectMode == self.SEGMENTATION_TREE:
                 self.segmentation_tree.updateHovering([pos.x(),pos.y()])
             elif self.adjustingStencilSize:
                 dif = pos.x() - self.stencilSizeAdjustmentStartingPoint[0]
@@ -498,17 +522,29 @@ class Canvas(QtWidgets.QWidget):
                         self.line[0] = self.current[-1]
                         if self.current.isClosed():
                             self.finalise()
+                            # self.curTime = time.perf_counter()
+                            # print(self.curTime)
+                            # self.polygonToMask()
                     elif self.createMode in ["rectangle", "circle", "line"]:
                         assert len(self.current.points) == 1
                         self.current.points = self.line.points
                         self.finalise()
+                        # self.curTime = time.perf_counter()
+                        # print(self.curTime)
+                        # self.polygonToMask()
                     elif self.createMode == "linestrip":
                         self.current.addPoint(self.line[1])
                         self.line[0] = self.current[-1]
                         if int(ev.modifiers()) == QtCore.Qt.ControlModifier:
                             self.finalise()
+                            # self.curTime = time.perf_counter()
+                            # print(self.curTime)
+                            # self.polygonToMask()
                 elif not self.outOfPixmap(pos):
                     # Create new shape.
+                    # self.startTime = time.perf_counter()
+                    # print(self.startTime)
+                    # self.saveCounter = 0
                     self.current = Shape(shape_type=self.createMode)
                     self.current.addPoint(pos)
                     if self.createMode == "point":
@@ -535,16 +571,31 @@ class Canvas(QtWidgets.QWidget):
                 self.prevPoint = pos
                 self.repaint()
             elif self.selecting():
-                if self.selectMode == "border_selection":
+                if self.selectMode == self.BORDER_SELECTION:
                     self.segmentation_tree.removeSelection()
                     self.contouring = True
                     self.contour_points = [pos]
-                elif self.selectMode == "mask_segment_selection" or self.selectMode == "mask_segment_deselection" or self.selectMode == "mask_addition" or self.selectMode == "mask_removal":
+                elif (
+                     self.selectMode == self.MASK_SEGMENT_SELECTION or
+                     self.selectMode == self.MASK_SEGMENT_DESELECTION or
+                     self.selectMode == self.MASK_ADDITION or
+                     self.selectMode == self.MASK_REMOVAL or
+                     self.selectMode == self.MAX_CONTRAST_BOUNDARY
+                    ):
                     self.contouring = True
                     self.contour_points = [pos]
         elif ev.button() == QtCore.Qt.MiddleButton:
-            self.adjustingStencilSize = True
-            self.stencilSizeAdjustmentStartingPoint = (pos.x(),pos.y())
+            if self.selecting():
+                if (
+                    self.selectMode == self.BORDER_SELECTION or
+                    self.selectMode == self.MASK_SEGMENT_SELECTION or
+                    self.selectMode == self.MASK_SEGMENT_DESELECTION or
+                    self.selectMode == self.MASK_ADDITION or
+                    self.selectMode == self.MASK_REMOVAL or
+                    self.selectMode == self.MAX_CONTRAST_BOUNDARY
+                    ):
+                    self.adjustingStencilSize = True
+                    self.stencilSizeAdjustmentStartingPoint = (pos.x(),pos.y())
         elif ev.button() == QtCore.Qt.RightButton and self.editing():
             group_mode = int(ev.modifiers()) == QtCore.Qt.ControlModifier
             if not self.selectedShapes or (
@@ -581,10 +632,10 @@ class Canvas(QtWidgets.QWidget):
                         [x for x in self.selectedShapes if x != self.hShape]
                     )
             if self.selecting():
-                if self.selectMode == "segmentation_tree":
+                if self.selectMode == self.SEGMENTATION_TREE:
                     self.segmentation_tree.editSegmentSelectionAtContrastLevel((pos.x(),pos.y()), self.contrast_levels[self.contrast_level_index])
                     self.updateSegTreeSelectionUnaryUnion()
-                elif self.selectMode == "border_selection":
+                elif self.selectMode == self.BORDER_SELECTION:
                     self.contouring = False
                     self.contour_points.append(pos)
                     if len(self.contour_points) >= 3:
@@ -593,36 +644,63 @@ class Canvas(QtWidgets.QWidget):
                         selection_polygon = Polygon(list(contour.exterior.coords)).simplify(0)
                         self.segmentation_tree.selectSegmentsWithPercentAreaAndBoundary(selection_polygon)
                     self.updateSegTreeSelectionUnaryUnion()
-                elif self.selectMode == "mask_segment_selection" or self.selectMode == "mask_segment_deselection":
+                    # self.curTime = time.perf_counter()
+                    # print(self.curTime)
+                    # self.polygonToMask()
+                elif self.selectMode == self.MASK_SEGMENT_SELECTION or self.selectMode == self.MASK_SEGMENT_DESELECTION:
                     self.contouring = False
                     self.contour_points.append(pos)
                     points = [(i.x(), i.y()) for i in self.contour_points]
                     contour = LineString(points).buffer(self.contour_editing_radius/2)
 
                     adding = True
-                    if self.selectMode == "mask_segment_deselection":
+                    if self.selectMode == self.MASK_SEGMENT_DESELECTION:
                         adding = False
 
                     self.segmentation_tree.editSegmentSelectionWithVariableWidthContour(contour, adding, False)
                     self.updateSegTreeSelectionUnaryUnion()
-                elif self.selectMode == "mask_addition" or self.selectMode == "mask_removal":
+                    # self.curTime = time.perf_counter()
+                    # print(self.curTime)
+                    # self.polygonToMask()
+                elif self.selectMode == self.MASK_ADDITION or self.selectMode == self.MASK_REMOVAL:
                     self.contouring = False
                     self.contour_points.append(pos)
                     points = [(i.x(), i.y()) for i in self.contour_points]
                     contour = LineString(points).buffer(self.contour_editing_radius/2)
 
                     adding = True
-                    if self.selectMode == "mask_removal":
+                    if self.selectMode == self.MASK_REMOVAL:
                         adding = False
-                    
+                    # self.curTime = time.perf_counter()
+                    # print(self.curTime)
+                    # self.polygonToMask()
                     self.modifyFinalSelection(contour, adding)
+                elif self.selectMode == self.MAX_CONTRAST_BOUNDARY:
+                    self.contouring = False
+                    self.contour_points.append(pos)
+                    points = [(i.x(), i.y()) for i in self.contour_points]
+                    contour = LineString(points).buffer(self.contour_editing_radius/2)
+                    
+                    self.findSelectionFromContourContrast(contour)
+                    # self.curTime = time.perf_counter()
+                    # print(self.curTime)
+                    # self.polygonToMask()
                 self.update()
         elif ev.button() == QtCore.Qt.MiddleButton:
-            self.adjustingStencilSize = False
-            dif = pos.x() - self.stencilSizeAdjustmentStartingPoint[0]
-            self.contour_editing_radius += dif
-            if self.contour_editing_radius < 0:
-                self.contour_editing_radius = 5
+            if self.selecting():
+                if (
+                    self.selectMode == self.BORDER_SELECTION or
+                    self.selectMode == self.MASK_SEGMENT_SELECTION or
+                    self.selectMode == self.MASK_SEGMENT_DESELECTION or
+                    self.selectMode == self.MASK_ADDITION or
+                    self.selectMode == self.MASK_REMOVAL or
+                    self.selectMode == self.MAX_CONTRAST_BOUNDARY
+                    ):
+                    self.adjustingStencilSize = False
+                    dif = pos.x() - self.stencilSizeAdjustmentStartingPoint[0]
+                    self.contour_editing_radius += int(dif)
+                    if self.contour_editing_radius < 0:
+                        self.contour_editing_radius = 5
 
         if self.movingShape and self.hShape:
             index = self.shapes.index(self.hShape)
@@ -634,7 +712,176 @@ class Canvas(QtWidgets.QWidget):
                 self.shapeMoved.emit()
 
             self.movingShape = False
+            # self.curTime = time.perf_counter()
+            # print(self.curTime)
+            # self.polygonToMask()
 
+    def getSubArray(self, x, y, kernelWidth, kernelHeight):
+        arr = np.ndarray((kernelHeight,kernelWidth,3))
+        a = (kernelWidth-1)/2
+        b = (kernelHeight-1)/2
+        for i in range(0, kernelHeight):
+            for j in range(0, kernelWidth):
+                argb = self.image.pixel(int(x+j-a),int(y+i-b))
+                arr[i,j,0] = (argb & 0x00ff0000) >> 16
+                arr[i,j,1] = (argb & 0x0000ff00) >> 8
+                arr[i,j,2] = (argb & 0x000000ff)
+        return arr
+
+    def calcContrastDy(self, arr):
+        kernelDy = np.array([[[-1,-1,-1],[-1,-1,-1],[-1,-1,-1]],
+                            [[0,0,0],[0,0,0],[0,0,0]],
+                            [[1,1,1],[1,1,1],[1,1,1]]])
+        arr = np.multiply(arr,kernelDy)
+        return np.linalg.norm(arr.sum(0).sum(0))
+
+    def calcContrastDx(self, arr):
+        kernelDx = np.array([[[-1,-1,-1],[0,0,0],[1,1,1]],
+                            [[-1,-1,-1],[0,0,0],[1,1,1]],
+                            [[-1,-1,-1],[0,0,0],[1,1,1]]])
+        arr = np.multiply(arr,kernelDx)
+        return np.linalg.norm(arr.sum(0).sum(0))
+
+    def findSelectionFromContourContrast(self, contour):
+        contour_points = list(contour.simplify(0.1).exterior.coords)
+        new_contour_points = []
+        for i in range(0, len(contour_points)-1):
+            new_contour_points.append([contour_points[i][0],contour_points[i][1]])
+            if contour_points[i][0] < 0:
+                new_contour_points[i][0] = 0
+            elif contour_points[i][0] >= self.image.width():
+                new_contour_points[i][0] = self.image.width()-1
+            if contour_points[i][1] < 0:
+                new_contour_points[i][1] = 0
+            elif contour_points[i][1] >= self.image.height():
+                new_contour_points[i][1] = self.image.height()-1
+        contour_points = new_contour_points
+                    
+        newPoints = []
+        for i in range(0, len(contour_points)-1):
+            curX = int(contour_points[i][0])
+            curY = int(contour_points[i][1])
+
+            verticalSearch = False
+            searchingUp = False
+            searchingLeft = False
+            if abs(contour_points[i+1][0] - contour_points[i-1][0]) >= abs(contour_points[i+1][1] - contour_points[i-1][1]):
+                verticalSearch = True
+                if contour.contains(Point(curX, curY-1)):
+                    searchingUp = True
+            else:
+                if contour.contains(Point(curX-1, curY)):
+                    searchingLeft = True
+
+            maxContrastPoint = (curX, curY)
+            if curY <= 0 or curY >= self.image.height()-1 or curX <= 0 or curX >= self.image.width()-1:
+                maxContrastVal = 255
+            else:
+                arr = self.getSubArray(curX,curY,3, 3)
+                maxContrastVal = self.calcContrastDy(arr) + self.calcContrastDx(arr)
+            
+            # if verticalSearch and searchingUp:
+            #     LineString([(curX, curY), (curX, curY-j)])
+            # elif verticalSearch and not searchingUp:
+                
+            # elif not verticalSearch and searchingLeft:
+                
+            # elif not verticalSearch and not searchingLeft:
+            for j in range(0, self.contour_editing_radius):
+                if verticalSearch and searchingUp:
+                    if self.selectedSegmentContainsPoint(Point(curX, curY-j)):
+                        maxContrastPoint = (curX, curY-j)
+                        break
+                    elif curY-j <= 0 or curY-j >= self.image.height()-1 or curX <= 0 or curX >= self.image.width()-1:
+                        newContrastVal = 255
+                    else:
+                        arr = self.getSubArray(curX,curY-j,3, 3)
+                        newContrastVal = self.calcContrastDy(arr) + self.calcContrastDx(arr)
+                elif verticalSearch and not searchingUp:
+                    if self.selectedSegmentContainsPoint(Point(curX, curY+j)):
+                        maxContrastPoint = (curX, curY+j)
+                        break
+                    elif curY+j <= 0 or curY+j >= self.image.height()-1 or curX <= 0 or curX >= self.image.width()-1:
+                        newContrastVal = 255
+                    else:
+                        arr = self.getSubArray(curX,curY+j,3, 3)
+                        newContrastVal = self.calcContrastDy(arr) + self.calcContrastDx(arr)
+                elif not verticalSearch and searchingLeft:
+                    if self.selectedSegmentContainsPoint(Point(curX-j, curY)):
+                        maxContrastPoint = (curX-j, curY)
+                        break
+                    elif curY <= 0 or curY >= self.image.height()-1 or curX-j <= 0 or curX-j >= self.image.width()-1:
+                        newContrastVal = 255
+                    else:
+                        arr = self.getSubArray(curX-j,curY,3, 3)
+                        newContrastVal = self.calcContrastDy(arr) + self.calcContrastDx(arr)
+                elif not verticalSearch and not searchingLeft:
+                    if self.selectedSegmentContainsPoint(Point(curX+j, curY)):
+                        maxContrastPoint = (curX+j, curY)
+                        break
+                    elif curY <= 0 or curY >= self.image.height()-1 or curX+j <= 0 or curX+j >= self.image.width()-1:
+                        newContrastVal = 255
+                    else:
+                        arr = self.getSubArray(curX+j,curY,3, 3)
+                        newContrastVal = self.calcContrastDy(arr) + self.calcContrastDx(arr)
+                if newContrastVal > maxContrastVal:
+                    maxContrastVal = newContrastVal
+                    if verticalSearch and searchingUp:
+                        maxContrastPoint = (curX, curY-j)
+                    elif verticalSearch and not searchingUp:
+                        maxContrastPoint = (curX, curY+j)
+                    elif not verticalSearch and searchingLeft:
+                        maxContrastPoint = (curX-j, curY)
+                    elif not verticalSearch and not searchingLeft:
+                        maxContrastPoint = (curX+j, curY)
+                        
+            newPoints.append(maxContrastPoint)
+        unmodified = False
+        while not unmodified:
+            unmodified = True
+            smothedPoints = []
+            for i in range(0, len(newPoints)-1):
+                point0 = newPoints[i-1]
+                point1 = newPoints[i]
+                point2 = newPoints[i+1]
+                vector1 = (point0[0]-point1[0],point0[1]-point1[1])
+                vector2 = (point2[0]-point1[0],point2[1]-point1[1])
+
+                vectorL2Norm = (math.sqrt(pow(vector1[0],2)+pow(vector1[1],2))*math.sqrt(pow(vector2[0],2)+pow(vector2[1],2)))
+                angle = 0
+                if vectorL2Norm != 0:
+                    val = (vector1[0]*vector2[0]+vector1[1]*vector2[1])/vectorL2Norm
+                    if val >= -1 and val <= 1:
+                        angle = math.acos(val)
+                
+                if angle < math.pi/2:
+                    unmodified = False
+                else:
+                    smothedPoints.append(point1)
+            newPoints = smothedPoints
+        convexHullSelectionPolygon = Polygon(newPoints).convex_hull
+        selectionPolygon = unary_union(Polygon(newPoints).buffer(0))
+        while hasattr(selectionPolygon, 'geoms') and len(selectionPolygon.geoms) != 1:
+            selectionPolygon = unary_union(selectionPolygon.buffer(0.5))
+        self.newPoints = newPoints#list(selectionPolygon.exterior.coords)
+        selectionPolygon = selectionPolygon.intersection(convexHullSelectionPolygon)
+        resultingGeom = unary_union(self.segmentation_tree_selection_unary_union + [selectionPolygon])
+        self.segmentation_tree_selection_unary_union = []
+        if resultingGeom.is_empty:
+            pass
+        elif resultingGeom.geom_type != "Polygon":
+            self.segmentation_tree_selection_unary_union += list(resultingGeom.geoms)
+        else:
+            self.segmentation_tree_selection_unary_union += [resultingGeom]
+        self.numFinalSelectionPolygons = len(self.segmentation_tree_selection_unary_union)
+        self.updateNumFinalSelectionPolygonsLabel.emit()
+
+    def selectedSegmentContainsPoint(self, point):
+        for segment in self.segmentation_tree_selection_unary_union:
+            if segment.contains(point):
+                return True
+
+        return False
     def endMove(self, copy):
         assert self.selectedShapes and self.selectedShapesCopy
         assert len(self.selectedShapesCopy) == len(self.selectedShapes)
@@ -846,22 +1093,29 @@ class Canvas(QtWidgets.QWidget):
                 p.drawLine(
                     0,
                     int(self.prevMovePoint.y()),
-                    self.width() - 1,
+                    self.image.width() - 1,
                     int(self.prevMovePoint.y()),
                 )
                 p.drawLine(
                     int(self.prevMovePoint.x()),
                     0,
                     int(self.prevMovePoint.x()),
-                    self.height() - 1,
+                    self.image.height() - 1,
                 )
 
         Shape.scale = self.scale
 
         if self.selecting():
-            if self.selectMode == "segmentation_tree":
+            if self.selectMode == self.SEGMENTATION_TREE:
                 self.segmentation_tree.paintContrastLevel(p, self.contrast_levels[self.contrast_level_index], self.selectionToolColor)
-            elif self.selectMode == "border_selection" or self.selectMode == "mask_segment_selection" or self.selectMode == "mask_segment_deselection" or self.selectMode == "mask_addition" or self.selectMode == "mask_removal":
+            elif (
+                 self.selectMode == self.BORDER_SELECTION or
+                 self.selectMode == self.MASK_SEGMENT_SELECTION or
+                 self.selectMode == self.MASK_SEGMENT_DESELECTION or
+                 self.selectMode == self.MASK_ADDITION or
+                 self.selectMode == self.MASK_REMOVAL or
+                 self.selectMode == self.MAX_CONTRAST_BOUNDARY
+                ):
                 pen = p.pen()
                 save_pen = pen
                 pen.setColor(QtGui.QColor(0, 255, 0, 255))
@@ -877,6 +1131,41 @@ class Canvas(QtWidgets.QWidget):
                         p.drawLine(self.contour_points[i], self.contour_points[i+1])
 
                 self.paintSegTreeSelectionUnaryUnion(p)
+            # if self.selectMode == self.MAX_CONTRAST_BOUNDARY:
+            #     for i in range(0, len(self.newPoints)-1):
+            #             p.drawLine(QtCore.QPointF(*self.newPoints[i]), QtCore.QPointF(*self.newPoints[i+1]))
+            #     pen = p.pen()
+            #     pen.setColor(QtGui.QColor(255, 0, 0, 255))
+            #     p.setPen(pen)
+            #     for point in self.newPoints:
+            #         p.drawPoint(QtCore.QPointF(*point))
+                # if not self.contouring:
+                #     points = [(i.x(), i.y()) for i in self.contour_points]
+                #     contour = LineString(points).buffer(self.contour_editing_radius/2)
+                #     contour_points = list(contour.exterior.coords)
+                #     for i in range(0,len(contour_points)-1):
+                #         if abs(contour_points[i+1][0] - contour_points[i-1][0]) >= abs(contour_points[i+1][1] - contour_points[i-1][1]):
+                #             if contour.contains(Point(contour_points[i][0], contour_points[i][1]-1)):
+                #                 pen = p.pen()
+                #                 pen.setColor(QtGui.QColor(255, 0, 0, 255))
+                #                 p.setPen(pen)
+                #                 p.drawPoint(QtCore.QPointF(contour_points[i][0], contour_points[i][1]))
+                #             else:
+                #                 pen = p.pen()
+                #                 pen.setColor(QtGui.QColor(0, 255, 0, 255))
+                #                 p.setPen(pen)
+                #                 p.drawPoint(QtCore.QPointF(contour_points[i][0], contour_points[i][1]))
+                #         else:
+                #             if contour.contains(Point(contour_points[i][0]-1, contour_points[i][1])):
+                #                 pen = p.pen()
+                #                 pen.setColor(QtGui.QColor(0, 0, 255, 255))
+                #                 p.setPen(pen)
+                #                 p.drawPoint(QtCore.QPointF(contour_points[i][0], contour_points[i][1]))
+                #             else:
+                #                 pen = p.pen()
+                #                 pen.setColor(QtGui.QColor(255, 255, 0, 255))
+                #                 p.setPen(pen)
+                #                 p.drawPoint(QtCore.QPointF(contour_points[i][0], contour_points[i][1]))
 
         for shape in self.shapes:
             if (shape.selected or not self._hideBackround) and self.isVisible(
@@ -1004,7 +1293,7 @@ class Canvas(QtWidgets.QWidget):
         return super(Canvas, self).minimumSizeHint()
 
     def adjustContourRadius(self, scroll_delta):
-        self.contour_editing_radius += scroll_delta * 0.1
+        self.contour_editing_radius += int(scroll_delta * 0.1)
         if self.contour_editing_radius < 0:
             self.contour_editing_radius = 5
         self.update()
@@ -1021,7 +1310,7 @@ class Canvas(QtWidgets.QWidget):
                 # scroll
                 self.scrollRequest.emit(delta.x(), QtCore.Qt.Horizontal)
                 self.scrollRequest.emit(delta.y(), QtCore.Qt.Vertical)
-            elif QtCore.Qt.ShiftModifier == int(mods) and (self.selectMode == "border_selection" or self.selectMode == "mask_segment_selection" or self.selectMode == "mask_segment_deselection" or self.selectMode == "mask_addition" or self.selectMode == "mask_removal"):
+            elif QtCore.Qt.ShiftModifier == int(mods) and (self.selectMode == self.BORDER_SELECTION or self.selectMode == self.MASK_SEGMENT_SELECTION or self.selectMode == self.MASK_SEGMENT_DESELECTION or self.selectMode == self.MASK_ADDITION or self.selectMode == self.MASK_REMOVAL or self.selectMode == self.MAX_CONTRAST_BOUNDARY):
                 self.adjustContourRadius(delta.y())
         else:
             if ev.orientation() == QtCore.Qt.Vertical:
@@ -1036,7 +1325,7 @@ class Canvas(QtWidgets.QWidget):
             else:
                 self.scrollRequest.emit(ev.delta(), QtCore.Qt.Horizontal)
 
-            if QtCore.Qt.ShiftModifier == int(mods) and (self.selectMode == "border_selection" or self.selectMode == "mask_segment_selection" or self.selectMode == "mask_segment_deselection" or self.selectMode == "mask_addition" or self.selectMode == "mask_removal"):
+            if QtCore.Qt.ShiftModifier == int(mods) and (self.selectMode == self.BORDER_SELECTION or self.selectMode == self.MASK_SEGMENT_SELECTION or self.selectMode == self.MASK_SEGMENT_DESELECTION or self.selectMode == self.MASK_ADDITION or self.selectMode == self.MASK_REMOVAL or self.selectMode == self.MAX_CONTRAST_BOUNDARY):
                 self.adjustContourRadius(ev.delta())
         ev.accept()
 
@@ -1082,7 +1371,7 @@ class Canvas(QtWidgets.QWidget):
                         return
                 for polygon in self.segmentation_tree_selection_unary_union:
                     new_shape = Shape(shape_type="polygon")
-                    points = list(polygon.exterior.coords)
+                    points = list(polygon.simplify(0.4).exterior.coords)
                     for point in points:
                         new_shape.addPoint(QtCore.QPoint(point[0], point[1]))
                     new_shape.close()
@@ -1093,12 +1382,12 @@ class Canvas(QtWidgets.QWidget):
                 self.clearSegTreeSelection()
                 self.update()
             elif key == QtCore.Qt.Key_Q:
-                if self.selectMode == "segmentation_tree" and self.contrast_level_index > 0:
+                if self.selectMode == self.SEGMENTATION_TREE and self.contrast_level_index > 0:
                     self.contrast_level_index -= 1
                     self.updateContrastLevelIndexTextBox.emit()
                     self.update()
             elif key == QtCore.Qt.Key_E:
-                if self.selectMode == "segmentation_tree" and self.contrast_level_index < len(self.contrast_levels)-1:
+                if self.selectMode == self.SEGMENTATION_TREE and self.contrast_level_index < len(self.contrast_levels)-1:
                     self.contrast_level_index += 1
                     self.updateContrastLevelIndexTextBox.emit()
                     self.update()

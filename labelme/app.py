@@ -388,6 +388,14 @@ class MainWindow(QtWidgets.QMainWindow):
             enabled=True,
         )
 
+        maxContrastBoundaryMode = action(
+            text=self.tr("Max Contrast Boundary"),
+            slot=lambda: self.toggleSelectMode(selectMode="max_contrast_boundary"),
+            icon="objects",
+            tip=self.tr("Draw a contour covering the boundary of the desired selection"),
+            enabled=True,
+        )
+
         changeSelectionToolBaseColor = action(
             text=self.tr("Change Base Color"),
             slot=lambda: self.changeSelectionToolColor(colorType="base"),
@@ -701,6 +709,7 @@ class MainWindow(QtWidgets.QMainWindow):
             maskSegmentDeselectionMode=maskSegmentDeselectionMode,
             maskAdditionMode=maskAdditionMode,
             maskRemovalMode=maskRemovalMode,
+            maxContrastBoundaryMode=maxContrastBoundaryMode,
             changeSelectionToolBaseColor=changeSelectionToolBaseColor,
             changeSelectionToolBlinkColor=changeSelectionToolBlinkColor,
             colorBlinkCheckBox=colorBlinkCheckBox,
@@ -865,6 +874,7 @@ class MainWindow(QtWidgets.QMainWindow):
             fitWidth,
         )
 
+        self.addToolBarBreak(Qt.LeftToolBarArea)
         self.selectionTools = self.toolbar("Selection Tools")
         self.actions.selectionTool = (
             segmentationTreeMode,
@@ -876,6 +886,7 @@ class MainWindow(QtWidgets.QMainWindow):
             None,
             maskAdditionMode,
             maskRemovalMode,
+            maxContrastBoundaryMode,
             None,
             changeSelectionToolBaseColor,
             changeSelectionToolBlinkColor,
@@ -1229,55 +1240,76 @@ class MainWindow(QtWidgets.QMainWindow):
         self.canvas.createMode = createMode
 
     def toggleSelectMode(self, selectMode="segmentation_tree"):
-        self.canvas.selectMode = selectMode
         if selectMode == "segmentation_tree":
+            self.canvas.selectMode = self.canvas.SEGMENTATION_TREE
             self.actions.segmentationTreeMode.setEnabled(False)
             self.actions.borderSelectionMode.setEnabled(True)
             self.actions.maskSegmentSelectionMode.setEnabled(True)
             self.actions.maskSegmentDeselectionMode.setEnabled(True)
             self.actions.maskAdditionMode.setEnabled(True)
             self.actions.maskRemovalMode.setEnabled(True)
+            self.actions.maxContrastBoundaryMode.setEnabled(True)
             self.actions.contrastLevelIndexTextBox.setVisible(True)
             self.updateContrastLevelIndexTextBox()
         elif selectMode == "border_selection":
+            self.canvas.selectMode = self.canvas.BORDER_SELECTION
             self.actions.segmentationTreeMode.setEnabled(True)
             self.actions.borderSelectionMode.setEnabled(False)
             self.actions.maskSegmentSelectionMode.setEnabled(True)
             self.actions.maskSegmentDeselectionMode.setEnabled(True)
             self.actions.maskAdditionMode.setEnabled(True)
             self.actions.maskRemovalMode.setEnabled(True)
+            self.actions.maxContrastBoundaryMode.setEnabled(True)
             self.actions.contrastLevelIndexTextBox.setVisible(False)
         elif selectMode == "mask_segment_selection":
+            self.canvas.selectMode = self.canvas.MASK_SEGMENT_SELECTION
             self.actions.segmentationTreeMode.setEnabled(True)
             self.actions.borderSelectionMode.setEnabled(True)
             self.actions.maskSegmentSelectionMode.setEnabled(False)
             self.actions.maskSegmentDeselectionMode.setEnabled(True)
             self.actions.maskAdditionMode.setEnabled(True)
             self.actions.maskRemovalMode.setEnabled(True)
+            self.actions.maxContrastBoundaryMode.setEnabled(True)
             self.actions.contrastLevelIndexTextBox.setVisible(False)
         elif selectMode == "mask_segment_deselection":
+            self.canvas.selectMode = self.canvas.MASK_SEGMENT_DESELECTION
             self.actions.segmentationTreeMode.setEnabled(True)
             self.actions.borderSelectionMode.setEnabled(True)
             self.actions.maskSegmentSelectionMode.setEnabled(True)
             self.actions.maskSegmentDeselectionMode.setEnabled(False)
             self.actions.maskAdditionMode.setEnabled(True)
             self.actions.maskRemovalMode.setEnabled(True)
+            self.actions.maxContrastBoundaryMode.setEnabled(True)
             self.actions.contrastLevelIndexTextBox.setVisible(False)
         elif selectMode == "mask_addition":
+            self.canvas.selectMode = self.canvas.MASK_ADDITION
             self.actions.segmentationTreeMode.setEnabled(True)
             self.actions.borderSelectionMode.setEnabled(True)
             self.actions.maskSegmentSelectionMode.setEnabled(True)
             self.actions.maskSegmentDeselectionMode.setEnabled(True)
             self.actions.maskAdditionMode.setEnabled(False)
             self.actions.maskRemovalMode.setEnabled(True)
+            self.actions.maxContrastBoundaryMode.setEnabled(True)
             self.actions.contrastLevelIndexTextBox.setVisible(False)
         elif selectMode == "mask_removal":
+            self.canvas.selectMode = self.canvas.MASK_REMOVAL
             self.actions.segmentationTreeMode.setEnabled(True)
             self.actions.borderSelectionMode.setEnabled(True)
             self.actions.maskSegmentSelectionMode.setEnabled(True)
             self.actions.maskSegmentDeselectionMode.setEnabled(True)
             self.actions.maskAdditionMode.setEnabled(True)
             self.actions.maskRemovalMode.setEnabled(False)
+            self.actions.maxContrastBoundaryMode.setEnabled(True)
+            self.actions.contrastLevelIndexTextBox.setVisible(False)
+        elif selectMode == "max_contrast_boundary":
+            self.canvas.selectMode = self.canvas.MAX_CONTRAST_BOUNDARY
+            self.actions.segmentationTreeMode.setEnabled(True)
+            self.actions.borderSelectionMode.setEnabled(True)
+            self.actions.maskSegmentSelectionMode.setEnabled(True)
+            self.actions.maskSegmentDeselectionMode.setEnabled(True)
+            self.actions.maskAdditionMode.setEnabled(True)
+            self.actions.maskRemovalMode.setEnabled(True)
+            self.actions.maxContrastBoundaryMode.setEnabled(False)
             self.actions.contrastLevelIndexTextBox.setVisible(False)
         else:
             raise ValueError("Unsupported selectMode: %s" % selectMode)
@@ -1756,7 +1788,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if QtCore.QFile.exists(matlab_filename):
             try:
-                self.canvas.segmentation_tree, self.canvas.contrast_levels = segmentationTree.convertMatToTree(matlab_filename)
+                self.canvas.segmentation_tree, self.canvas.contrast_levels = segmentationTree.convertMatToTree(matlab_filename, self.image.width(), self.image.height())
+                self.canvas.segmentation_tree.createMissingChildren()
                 try:
                     with open(seg_tree_filename, "w") as f:
                         jsonSegTree = self.canvas.segmentation_tree.getSegTreeAsDictArray(self.canvas.contrast_levels)
@@ -1835,7 +1868,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.imagePath = filename
             self.labelFile = None
         image = QtGui.QImage.fromData(self.imageData)
-        self.loadSegTree(filename)
 
         if image.isNull():
             formats = [
@@ -1852,6 +1884,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.status(self.tr("Error reading %s") % filename)
             return False
         self.image = image
+        self.canvas.image = image
+        self.loadSegTree(filename)
         self.filename = filename
         if self._config["keep_prev"]:
             prev_shapes = self.canvas.shapes
