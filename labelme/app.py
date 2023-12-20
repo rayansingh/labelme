@@ -1781,14 +1781,12 @@ class MainWindow(QtWidgets.QMainWindow):
                 print("Error loading segmentation tree JSON")
         return False
     
-    def loadSegTreeFromMATLAB(self, matlab_filename, seg_tree_filename=None):
-        if seg_tree_filename == None:
-            base_filename = matlab_filename[:matlab_filename.find("_matlab_region_list.mat")]
-            seg_tree_filename = base_filename + "_seg_tree.json"
+    def createSegTree(self, image_filename, seg_tree_filename):
+        if QtCore.QFile.exists(image_filename):
+            self.canvas.segmentation_tree, self.canvas.contrast_levels = segmentationTree.createSegTree(image_filename)
 
-        if QtCore.QFile.exists(matlab_filename):
             try:
-                self.canvas.segmentation_tree, self.canvas.contrast_levels = segmentationTree.convertMatToTree(matlab_filename, self.image.width(), self.image.height())
+                self.canvas.segmentation_tree, self.canvas.contrast_levels = segmentationTree.createSegTree(image_filename)
                 self.canvas.segmentation_tree.createMissingChildren()
                 try:
                     with open(seg_tree_filename, "w") as f:
@@ -1799,17 +1797,16 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.toggleDrawMode(self.canvas.createMode)
                 return True
             except IOError:
-                print("Error loading segmentation tree MATLAB")
+                print("Error creating segmentation tree from image")
         return False
     
     def loadSegTree(self, filename):
         self.canvas.segmentation_tree = None
         seg_tree_filename = osp.splitext(filename)[0] + "_seg_tree" + ".json"
-        matlab_filename = osp.splitext(filename)[0] + "_matlab_region_list" + ".mat"
-
+        
         if self.loadSegTreeFromJSON(seg_tree_filename):
             return True
-        return self.loadSegTreeFromMATLAB(matlab_filename, seg_tree_filename)
+        return self.createSegTree(filename, seg_tree_filename)
 
     def loadFile(self, filename=None):
         """Load the specified file, or the last opened file if None."""
@@ -2121,8 +2118,6 @@ class MainWindow(QtWidgets.QMainWindow):
             if fileName:
                 if osp.splitext(fileName)[1] == ".json":
                     return self.loadSegTreeFromJSON(fileName)
-                else:
-                    return self.loadSegTreeFromMATLAB(fileName)
         return False
 
     def changeOutputDirDialog(self, _value=False):

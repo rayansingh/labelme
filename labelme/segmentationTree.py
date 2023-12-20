@@ -8,39 +8,101 @@ import json
 from qtpy import QtCore
 from qtpy import QtGui
 
+import subprocess
+import os 
 
-def convertMatToTree(filename, c, r):
-    matlab_file = loadmat(filename)
-    key = list(matlab_file.keys())[3]
-    segmentation_tree_array = loadmat(filename)[key][0]
-    num_segments = len(segmentation_tree_array)
+def ReadRegionList(generalDataDir, boundaryDataDir):
+    data = np.fromfile(generalDataDir, dtype=np.int32)
+    num_regions = data[0]
+    regions = []
+    num_boundary_points = []
+    boundary_points_start_index = []
+    index_sum = 0
+    for i in range(0,num_regions):
+        index_sum = index_sum + data[i*3+1]
+        boundary_points_start_index.append(index_sum)
+        num_boundary_points.append(data[i*3+1])
+        regions.append([])
+        regions[i].append(int(data[i*3+2]))
+        regions[i].append(int(data[i*3+3]))
+
+    array = np.fromfile(boundaryDataDir, dtype=np.int32).reshape(index_sum,2)
+    boundary_points = np.split(array, boundary_points_start_index)
+    boundary_points = [[[int(boundary_point[1]), int(boundary_point[0])] for boundary_point in boundary_point_list] for boundary_point_list in boundary_points]
+
+    for i in range(0,num_regions):
+        regions[i].append(boundary_points[i])
+
+    return regions, num_regions
+
+def createSegTree(image_filename):
+# def convertMatToTree(filename):
+    # matlab_file = loadmat(filename)
+    # key = list(matlab_file.keys())[3]
+    # segmentation_tree_array = loadmat(filename)[key][0]
+    # num_segments = len(segmentation_tree_array)
+    # trees = []
+    # contrast_levels = {}
+    # for i in range(0,num_segments):
+    #     segment_array = segmentation_tree_array[i][0][0]
+    #     boundary = segment_array[2]
+    #     contrast = int(segment_array[3][0][0])
+
+    #     contrast_levels[contrast] = contrast
+    #     if len(boundary) > 3:
+    #         boundary = [(coord[0]-1, coord[1]-1) for coord in boundary]
+    #         contour = np.flip(boundary, 1)
+    #         
+    #         if len(contour) < 3:
+    #             continue
+    #         new_node = SegmentationTree(contour, contrast)
+
+    #         if new_node.polygon.is_valid == False:
+    #             new_node.polygon = new_node.polygon.buffer(0.5).simplify(0)
+    #             if new_node.polygon.geom_type != "MultiPolygon" and len(new_node.getCoords()) < 3:
+    #                 pass
+    #         if new_node.polygon.geom_type == "MultiPolygon":
+    #             for polygon in list(new_node.polygon.geoms):
+    #                 if len(list(polygon.exterior.coords)) < 3:
+    #                     continue
+    #                 trees.append(SegmentationTree(list(polygon.exterior.coords), contrast))
+    #         else:
+    #             trees.append(new_node)
+    # print("in")
+    baseDir = os.getcwd() + "\\"
+    # print(baseDir)
+    image_name = os.path.splitext(os.path.split(image_filename)[1])[0]
+    # print(baseDir + "segmentation_tree.exe", image_filename, baseDir + "temp\\", image_name)
+    result = subprocess.run([baseDir + "segmentation_tree.exe", image_filename, baseDir + "temp\\", image_name])
+    # print(result.returncode)
+    # print("1")
+    generalDataDir = baseDir + "temp\\"+ image_name + "_GeneralData.bin"
+    boundaryDataDir = baseDir + "temp\\"+ image_name + "_BoundaryData.bin"
+    # print(generalDataDir, boundaryDataDir)
+    regions, num_regions = ReadRegionList(generalDataDir, boundaryDataDir)
+
     trees = []
     contrast_levels = {}
-    for i in range(0,num_segments):
-        segment_array = segmentation_tree_array[i][0][0]
-        boundary = segment_array[2]
-        contrast = int(segment_array[3][0][0])
-
+    for i in range(0,num_regions):
+        boundary = regions[i][2]
+        contrast = regions[i][1]
         contrast_levels[contrast] = contrast
-        if len(boundary) > 3:
-            boundary = [(coord[0]-1, coord[1]-1) for coord in boundary]
-            contour = np.flip(boundary, 1)
-            if len(contour) < 3:
-                continue
-            new_node = SegmentationTree(contour, contrast)
+        if len(boundary) < 3:
+            continue
 
-            if new_node.polygon.is_valid == False:
-                new_node.polygon = new_node.polygon.buffer(0.5).simplify(0)
-                if new_node.polygon.geom_type != "MultiPolygon" and len(new_node.getCoords()) < 3:
-                    pass
-            if new_node.polygon.geom_type == "MultiPolygon":
-                for polygon in list(new_node.polygon.geoms):
-                    if len(list(polygon.exterior.coords)) < 3:
-                        continue
-                    trees.append(SegmentationTree(list(polygon.exterior.coords), contrast))
-            else:
-                trees.append(new_node)        
-
+        new_node = SegmentationTree(boundary, contrast)
+        if new_node.polygon.is_valid == False:
+            new_node.polygon = new_node.polygon.buffer(0.5).simplify(0)
+            if new_node.polygon.geom_type != "MultiPolygon" and len(new_node.getCoords()) < 3:
+                pass
+        if new_node.polygon.geom_type == "MultiPolygon":
+            for polygon in list(new_node.polygon.geoms):
+                if len(list(polygon.exterior.coords)) < 3:
+                    continue
+                trees.append(SegmentationTree(list(polygon.exterior.coords), contrast))
+        else:
+            trees.append(new_node)
+    # print("2")
     # sort shapes based on area
     is_sorted = True
     prev_area = trees[0].polygon.area
@@ -48,7 +110,7 @@ def convertMatToTree(filename, c, r):
         if trees[i].polygon.area > prev_area:
             # print("ERROR: Unsorted list of trees")
             is_sorted = False
-
+    # print("3")
     if not is_sorted:
         trees_copy = []
         for i in range(0, len(trees)):
@@ -76,7 +138,7 @@ def convertMatToTree(filename, c, r):
             if trees[i].polygon.area > prev_area:
                 print("ERROR: Unsorted list of trees")
                 is_sorted = False
-
+    # print("4")
     if is_sorted:
         roots = []
         # check containment of shapes to build tree
