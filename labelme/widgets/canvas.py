@@ -1370,7 +1370,7 @@ class Canvas(QtWidgets.QWidget):
                     new_shape = Shape(shape_type="polygon")
                     points = list(polygon.simplify(0.4).exterior.coords)
                     for point in points:
-                        new_shape.addPoint(QtCore.QPoint(point[0], point[1]))
+                        new_shape.addPoint(QtCore.QPoint(int(point[0]), int(point[1])))
                     new_shape.close()
                     self.shapes.append(new_shape)
                     self.storeShapes()

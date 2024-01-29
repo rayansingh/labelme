@@ -297,25 +297,12 @@ class SegmentationTree(object):
             child.removeSelection()
 
     def updateHovering(self,pos):
-        childHovered = False
-        
+        self.hovered = childHovered = False
         for child in self.children:
             childHovered |= child.updateHovering(pos)
-        
-        if not childHovered and self.polygon.contains(Point(pos)):
-            self.hovered = True
-        else:
-            self.hovered = False
-            
+        if not childHovered:
+            self.hovered = self.polygon.contains(Point(pos))
         return self.hovered
-    
-    def splitHovered(self):
-        if self.hovered:
-            for child in self.children:
-                child.splitHovered()
-            self.hovered = False
-        else:
-            self.hovered = False
         
     def collectSelectedSegments(self):
         selectedSegments = []
