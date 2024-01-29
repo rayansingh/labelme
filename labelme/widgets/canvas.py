@@ -653,9 +653,7 @@ class Canvas(QtWidgets.QWidget):
                     points = [(i.x(), i.y()) for i in self.contour_points]
                     contour = LineString(points).buffer(self.contour_editing_radius/2)
 
-                    adding = True
-                    if self.selectMode == self.MASK_SEGMENT_DESELECTION:
-                        adding = False
+                    adding = self.selectMode != self.MASK_SEGMENT_DESELECTION
 
                     self.segmentation_tree.editSegmentSelectionWithVariableWidthContour(contour, adding, False)
                     self.updateSegTreeSelectionUnaryUnion()
@@ -667,10 +665,9 @@ class Canvas(QtWidgets.QWidget):
                     self.contour_points.append(pos)
                     points = [(i.x(), i.y()) for i in self.contour_points]
                     contour = LineString(points).buffer(self.contour_editing_radius/2)
-
-                    adding = True
-                    if self.selectMode == self.MASK_REMOVAL:
-                        adding = False
+                    
+                    adding = self.selectMode != self.MASK_REMOVAL
+ 
                     # self.curTime = time.perf_counter()
                     # print(self.curTime)
                     # self.polygonToMask()
@@ -1393,6 +1390,9 @@ class Canvas(QtWidgets.QWidget):
                     self.update()
             elif key == QtCore.Qt.Key_W:
                 pass
+            elif key == QtCore.Qt.Key_S:
+                if self.selectMode == self.SEGMENTATION_TREE:
+                    self.segmentation_tree.splitHovered()
 
     def keyReleaseEvent(self, ev):
         modifiers = ev.modifiers()

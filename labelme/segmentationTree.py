@@ -259,14 +259,16 @@ class SegmentationTree(object):
     
     def editSegmentSelectionAtContrastLevel(self, pos, contrastLevel):
         if self.polygon == None or not self.polygon.contains(Point(pos)):
-            return
+            return False
 
-        if self.contrast_level == contrastLevel:
-            self.selected = not self.selected
-            return
-
+        childUpdated = False
         for child in self.children:
-            child.editSegmentSelectionAtContrastLevel(pos, contrastLevel)
+            childUpdated |= child.editSegmentSelectionAtContrastLevel(pos, contrastLevel)
+            
+        if self.contrast_level == contrastLevel and not childUpdated:
+            self.selected = not self.selected
+        
+        return True
 
     def paintContrastLevel(self, painter, curr_contrast_level, color):
         if ((self.contrast_level == curr_contrast_level) or self.selected) and self.polygon != None:
@@ -294,15 +296,27 @@ class SegmentationTree(object):
         for child in self.children:
             child.removeSelection()
 
-    def updateHovering(self, pos):
-        if self.polygon.contains(Point(pos)):
+    def updateHovering(self,pos):
+        childHovered = False
+        
+        for child in self.children:
+            childHovered |= child.updateHovering(pos)
+        
+        if not childHovered and self.polygon.contains(Point(pos)):
             self.hovered = True
         else:
             self.hovered = False
+            
+        return self.hovered
+    
+    def splitHovered(self):
+        if self.hovered:
+            for child in self.children:
+                child.splitHovered()
+            self.hovered = False
+        else:
+            self.hovered = False
         
-        for child in self.children:
-            child.updateHovering(pos)
-
     def collectSelectedSegments(self):
         selectedSegments = []
         if self.selected:
