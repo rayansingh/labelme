@@ -213,17 +213,15 @@ class SegmentationTree(object):
 
     def editSegmentSelectionWithVariableWidthContour(self, contour, adding, parent_selected):
         # TODO optimize to not check all segments when parents don't overlap
-        if adding and not self.selected:
-            intersection = self.polygon.intersection(contour)
-            if self.polygon.area > 0 and (intersection.area / self.polygon.area) > 0.9:
-                self.removeSelection()
+            
+        intersection = self.polygon.intersection(contour)
+        if self.polygon.area == 0 or (intersection.area / self.polygon.area) == 0:
+            return False
+        elif (intersection.area / self.polygon.area) > 0.9:
+            self.removeSelection()
+            if adding and not self.selected:
                 self.selected = True
-                return True
-        elif not adding and (self.selected or parent_selected):
-            intersection = self.polygon.intersection(contour)
-            if self.polygon.area > 0 and (intersection.area / self.polygon.area) > 0.9:
-                self.removeSelection()
-                return True
+            return True
         
         modified = False
         modified_children = []
@@ -238,7 +236,7 @@ class SegmentationTree(object):
                 # TODO fix grouping because a segment's children don't always span the entire segment so it could be included even when it shouldn't
                 # return self.groupChildSelection()
                 return False
-            elif not adding and (self.selected or parent_selected):
+            elif self.selected or parent_selected:
                 for child in self.children:
                     child_unmodified = True
                     # TODO can lead to removing more than intended when a segments children don't span the entire parent's segment since there won't be children to cover the non removed areas
